@@ -1,49 +1,111 @@
-import time
+"""
+Generic Scraper Base Class
+
+Provides a common interface and shared infrastructure for all scrapers.
+
+Supports multiple business sectors:
+- E-commerce (products)
+- Jobs
+- Real Estate (properties)
+- Companies
+- Reviews
+"""
+
 import logging
 from abc import ABC, abstractmethod
-from typing import Generator
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from app.models.product import ScrapedProduct
+from typing import Generator, TypeVar, Optional, Any
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+# Generic type for scraper records
+ScrapedRecordType = TypeVar('ScrapedRecordType')
+
 
 class BaseScraper(ABC):
-    def __init__(self, source_name: str, base_url: str, delay_seconds: float = 1.0, timeout: int = 10):
-        self.source_name = source_name
-        self.base_url = base_url
-        self.delay_seconds = delay_seconds
-        self.timeout = timeout
-        self.session = self._init_session()
-
-    def _init_session(self) -> requests.Session:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-        retries = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            raise_on_status=False
-        )
-        adapter = HTTPAdapter(max_retries=retries)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
-
-    def fetch_page(self, url: str) -> str:
-        try:
-            logging.info(f"[{self.source_name}] Fetching: {url}")
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
-            time.sleep(self.delay_seconds)
-            return response.text
-        except requests.exceptions.RequestException as e:
-            logging.error(f"[{self.source_name}] Request failed for {url}: {e}")
-            return ""
-
+    """
+    Generic base class for all scraper implementations.
+    
+    Defines the common contract that all scrapers must follow.
+    
+    Metadata:
+    - source_name: Human-readable name of the data source (e.g., "BooksToScrape")
+    - sector: Business sector (e.g., "ecommerce", "jobs", "real_estate")
+    - record_type: Type of record being scraped (e.g., "product", "job", "property")
+    - base_url: Base URL of the source website
+    """
+    
+    # Metadata - MUST be overridden by subclasses
+    source_name: str = None
+    sector: str = None
+    record_type: str = None
+    base_url: str = None
+    
+    def __init__(self):
+        """Initialize the scraper."""
+        # Validate metadata is defined
+        if not self.source_name:
+            raise ValueError(f"{self.__class__.__name__} must define 'source_name'")
+        if not self.sector:
+            raise ValueError(f"{self.__class__.__name__} must define 'sector'")
+        if not self.record_type:
+            raise ValueError(f"{self.__class__.__name__} must define 'record_type'")
+        
+        logger.debug(f"Initialized {self.__class__.__name__} "
+                    f"[{self.source_name}] ({self.sector})")
+    
     @abstractmethod
-    def scrape(self, max_pages: int = 1) -> Generator[ScrapedProduct, None, None]:
+    def scrape(self, max_pages: int = 1) -> Generator[Any, None, None]:
+        """
+        Scrape data from the source and yield validated records.
+        
+        Args:
+            max_pages: Maximum number of pages to scrape
+            
+        Yields:
+            Validated record instances (type depends on sector)
+            
+        Note:
+            Subclasses are responsible for:
+            - Implementing the scraping logic
+            - Yielding validated records
+            - Handling pagination
+            - Managing statistics
+        """
         pass
+    
+    def get_metadata(self) -> dict:
+        """
+        Get scraper metadata.
+        
+        Returns:
+            Dictionary with source_name, sector, record_type, and base_url
+        """
+        return {
+            "id": self._get_scraper_id(),
+            "name": self.source_name,
+            "sector": self.sector,
+            "record_type": self.record_type,
+            "base_url": self.base_url,
+        }
+    
+    @classmethod
+    def _get_scraper_id(cls) -> str:
+        """
+        Generate a unique scraper identifier from class name.
+        
+        Format: CamelCase -> snake_case
+        Example: BooksToScrapeScraper -> books_to_scrape
+        
+        Returns:
+            Lowercase scraper identifier
+        """
+        import re
+        class_name = cls.__name__
+        
+        # Remove "Scraper" suffix if present
+        if class_name.endswith("Scraper"):
+            class_name = class_name[:-7]
+        
+        # Convert CamelCase to snake_case
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', class_name)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()

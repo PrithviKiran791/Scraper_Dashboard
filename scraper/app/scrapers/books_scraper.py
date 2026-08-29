@@ -1,15 +1,22 @@
 """
-BooksToScrape adapter - concrete implementation using generic components.
+BooksToScrape Scraper
 
-This adapter demonstrates how to configure and use the generic scraping engine
-for a specific website (BooksToScrape), including domain-specific data transformations.
+Concrete implementation for scraping books.toscrape.com
+
+Demonstrates how to build a scraper using:
+1. The generic BaseScraper interface
+2. Configuration-driven extraction
+3. Domain-specific transformations
 """
 
+import logging
 from typing import Generator, Optional, Dict, Any
+
 from urllib.parse import urljoin
 from decimal import Decimal
 from datetime import datetime
 
+from app.scrapers.base import BaseScraper
 from app.core.crawler import Crawler
 from app.core.fetcher import HTTPFetcher
 from app.core.cleaner import Cleaner
@@ -19,28 +26,37 @@ from app.models.stats import ScrapingStats
 from app.schemas.extraction import ExtractionConfig, ExtractionField
 from app.schemas.pagination import URLTemplatePagination
 
+logger = logging.getLogger(__name__)
 
-class BooksToScrapeScraper:
+
+class BooksToScrapeScraper(BaseScraper):
     """
-    Adapter for scraping BooksToScrape using the generic engine.
+    Scraper for books.toscrape.com
     
-    This is the first concrete adapter demonstrating how to:
-    1. Configure extraction rules
-    2. Define pagination strategy
-    3. Use the generic crawler with domain-specific transformations
-    4. Handle data type conversions before validation
+    Metadata:
+    - source_name: "BooksToScrape"
+    - sector: "ecommerce"
+    - record_type: "product"
+    - base_url: "https://books.toscrape.com"
     """
+    
+    # Metadata - required by BaseScraper
+    source_name = "BooksToScrape"
+    sector = "ecommerce"
+    record_type = "product"
+    base_url = "https://books.toscrape.com"
     
     def __init__(self, delay_seconds: float = 1.0):
         """
-        Initialize the BooksToScrape adapter.
+        Initialize the BooksToScrape scraper.
         
         Args:
-            delay_seconds: Delay between requests
+            delay_seconds: Delay between requests for rate limiting
         """
-        self.source_name = "BooksToScrape"
+        # Call parent __init__ to validate metadata
+        super().__init__()
+        
         self.delay_seconds = delay_seconds
-        self.base_url = "https://books.toscrape.com"
         
         # Define extraction configuration
         self.extraction_config = ExtractionConfig(
@@ -77,6 +93,8 @@ class BooksToScrapeScraper:
         # Create fetcher
         self.fetcher = HTTPFetcher(delay_seconds=delay_seconds)
         self.stats = None
+        
+        logger.debug(f"Initialized {self.__class__.__name__}")
     
     def scrape(self, max_pages: int = 2) -> Generator[ScrapedProduct, None, None]:
         """
@@ -88,6 +106,8 @@ class BooksToScrapeScraper:
         Yields:
             ScrapedProduct instances
         """
+        logger.info(f"Starting scrape job for {self.source_name} ({max_pages} pages)")
+        
         # Update pagination max_pages
         self.pagination.max_pages = max_pages
         
